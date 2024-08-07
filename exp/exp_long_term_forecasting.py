@@ -11,6 +11,7 @@ import warnings
 import numpy as np
 from utils.dtw_metric import dtw,accelerated_dtw
 from utils.augmentation import run_augmentation,run_augmentation_single
+from exp.exp_feature_kd import student_attention, calculate_value
 
 warnings.filterwarnings('ignore')
 
@@ -25,6 +26,13 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         if self.args.use_multi_gpu and self.args.use_gpu:
             model = nn.DataParallel(model, device_ids=self.args.device_ids)
         return model
+
+    # def _build_teacher_model(self):
+    #     teacher_model = self.model_dict[self.args.teacher_model].Model(self.args).float()
+
+    #     if self.args.use_multi_gpu and self.args.use_gpu:
+    #         teacher_model = nn.DataParallel(teacher_model, device_ids=self.args.device_ids)
+    #     return teacher_model
 
     def _get_data(self, flag):
         data_set, data_loader = data_provider(self.args, flag)
@@ -95,12 +103,41 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         model_optim = self._select_optimizer()
         criterion = self._select_criterion()
 
+        ##
+        if self.args.kd:
+            # load teacher model
+            teacher_model = self.model_dict[self.args.teacher_model].Model(self.args).float()
+            teacher_model.load_state_dict(torch.load(self.args.teacher_path))
+            teacher_model = teacher_model.to(self.device)
+            print("teacher model load succeed!")
+            if self.args.use_multi_gpu and self.args.use_gpu:
+                teacher_model = nn.DataParallel(teacher_model, device_ids=self.args.device_ids)
+                print("teacher model on Multi-Device")
+            
+            # define kd loss function
+            kd_criterion = nn.MSELoss()
+            if self.args.kd_method == 'features':
+                kd_attns_criterion_1 = nn.MSELoss()
+                kd_attns_criterion_2 = nn.MSELoss()
+        ##
+
         if self.args.use_amp:
             scaler = torch.cuda.amp.GradScaler()
-
+        ##
+        # print("before training")
+        # initial_params = {name: param.clone() for name, param in self.model.named_parameters()}
+        # print(self.model)
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name} - mean: {param.mean().item()}, std: {param.std().item()}")
+        # total_params = sum(p.numel() for p in self.model.parameters())
+        # print(f"Total number of parameters: {total_params}")
+        # exit()
+        ##
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
+            kd_loss_list = []
+            kd_attn_loss_list = []
 
             self.model.train()
             epoch_time = time.time()
@@ -131,23 +168,94 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         train_loss.append(loss.item())
                 else:
                     if self.args.output_attention:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        # outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                        if self.args.kd_method == 'features':
+                            outputs, s_query, s_key, s_value = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            s_v, s_attn = student_attention(s_query, s_key, s_value)
+                            # print("student query: ", s_query.size())
+                            # print("student key: ", s_key.size())
+                            # print("student value: ", s_value.size())
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark) 
                     else:
-                        outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        if self.args.kd_method == 'features':
+                            outputs, s_query, s_key, s_value = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            s_v, s_attn = student_attention(s_query, s_key, s_value)
+                            # print("student query: ", s_query.size())
+                            # print("student key: ", s_key.size())
+                            # print("student value: ", s_value.size())
+                        else:
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark) 
+                        # outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
                     f_dim = -1 if self.args.features == 'MS' else 0
+                    # print("output size in training: ", outputs.size())
                     outputs = outputs[:, -self.args.pred_len:, f_dim:]
                     batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
                     loss = criterion(outputs, batch_y)
                     train_loss.append(loss.item())
+                ##
+                if self.args.kd:
+                    teacher_model.eval()
+                    with torch.no_grad():
+                        # calculate teacher outputs
+                        if self.args.kd_method == 'features':
+                            teacher_outputs, t_attns, t_query, t_key, t_value = teacher_model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            # calcuate loss between teacher and student attention
+                            # s_out, t_out = calculate_value(s_value, t_value[1])
+                            # kd_attn_loss = kd_attns_criterion_1(s_v, t_v) + kd_attns_criterion_2(s_out, t_out)
+                            # kd_attn_loss_list.append(kd_attn_loss.item())
+                        else:
+                            teacher_outputs = teacher_model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                        
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    teacher_outputs = teacher_outputs[:, -self.args.pred_len:, f_dim:]
 
+                    # calculate loss between student outputs and teacher outputs
+                    kd_loss = kd_criterion(outputs, teacher_outputs)
+                    kd_loss_list.append(kd_loss.item())
+                    
+                    if self.args.kd_method == 'features':
+                        ### original code ###
+                        t_v = torch.einsum("bhls,bshd->blhd", t_attns[1], t_value[1])
+                        s_out, t_out = calculate_value(s_value, t_value[1])
+                        kd_attn_loss = kd_attns_criterion_1(s_v, t_v) + kd_attns_criterion_2(s_out, t_out)
+                        ### original code ###
+                        # kd_attn_loss = kd_attns_criterion_1(s_attn, t_attns[1]) ##
+                        kd_attn_loss_list.append(kd_attn_loss.item())
+
+                ##
+                exit()
                 if (i + 1) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time() - time_now) / iter_count
-                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
-                    time_now = time.time()
+                    if self.args.kd:
+                        if self.args.kd_method == 'features':
+                            print("\titers: {0}, epoch: {1} | loss: {2:.7f} | kd_loss: {3:.7f} | kd_attn_loss: {4:.7f}".format(i + 1, epoch + 1, loss.item(), kd_loss.item(), kd_attn_loss.item()))
+                            speed = (time.time() - time_now) / iter_count
+                            left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                            print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                            iter_count = 0
+                            time_now = time.time()
+                        else:
+                            print("\titers: {0}, epoch: {1} | loss: {2:.7f} | kd_loss: {3:.7f}".format(i + 1, epoch + 1, loss.item(), kd_loss.item()))
+                            speed = (time.time() - time_now) / iter_count
+                            left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                            print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                            iter_count = 0
+                            time_now = time.time()
+                    else:
+                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                        speed = (time.time() - time_now) / iter_count
+                        left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                        iter_count = 0
+                        time_now = time.time()
+
+                if self.args.kd:
+                    if self.args.kd_method == 'features':
+                        # loss = (1-self.args.kd_loss_ratio)*loss + self.args.kd_loss_ratio*kd_loss + kd_attn_loss
+                        loss = (1-self.args.kd_loss_ratio)*loss + self.args.kd_loss_ratio*kd_attn_loss
+                    else:
+                        loss = (1-self.args.kd_loss_ratio)*loss + self.args.kd_loss_ratio*kd_loss
 
                 if self.args.use_amp:
                     scaler.scale(loss).backward()
@@ -156,7 +264,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 else:
                     loss.backward()
                     model_optim.step()
-
+            # exit()
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
@@ -170,9 +278,19 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 break
 
             adjust_learning_rate(model_optim, epoch + 1, self.args)
-
+            
+        # for name, param in self.model.named_parameters():
+        #     if torch.equal(initial_params[name], param):
+        #         print(f"Parameter {name} has not been updated.")
+        #     else:
+        #         print(f"Parameter {name} has been updated.")
+        # exit()
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
+
+        # print("after training")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name} - mean: {param.mean().item()}, std: {param.std().item()}")
 
         return self.model
 

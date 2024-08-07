@@ -88,7 +88,7 @@ if __name__ == '__main__':
     # optimization
     parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
     parser.add_argument('--itr', type=int, default=1, help='experiments times')
-    parser.add_argument('--train_epochs', type=int, default=10, help='train epochs')
+    parser.add_argument('--train_epochs', type=int, default=50, help='train epochs')
     parser.add_argument('--batch_size', type=int, default=32, help='batch size of train input data')
     parser.add_argument('--patience', type=int, default=3, help='early stopping patience')
     parser.add_argument('--learning_rate', type=float, default=0.0001, help='optimizer learning rate')
@@ -132,6 +132,18 @@ if __name__ == '__main__':
     parser.add_argument('--discsdtw', default=False, action="store_true", help="Discrimitive shapeDTW warp preset augmentation")
     parser.add_argument('--extra_tag', type=str, default="", help="Anything extra")
 
+    # cnn
+    parser.add_argument('--cnn_only', default=False, action="store_true", help="use cnn only")
+
+    # kd
+    parser.add_argument('--kd_loss_ratio', type=float, default=0.1, help="kd loss ration lambda")
+    parser.add_argument('--kd', default=False, action="store_true", help="Use KD")
+    parser.add_argument('--teacher_path', type=str, default='./checkpoints/', help='root path of teacher model')
+    parser.add_argument('--teacher_model', type=str, default='iTransformer',
+                        help='model name, options: [iTransformer, Transformer, TimesNet]')
+    parser.add_argument('--kd_method', type=str, default='logits',
+                        help='KD methods, options: [logits, features]')
+
     args = parser.parse_args()
     # args.use_gpu = True if torch.cuda.is_available() and args.use_gpu else False
     args.use_gpu = True if torch.cuda.is_available() else False
@@ -164,6 +176,116 @@ if __name__ == '__main__':
         for ii in range(args.itr):
             # setting record of experiments
             exp = Exp(args)  # set experiments
+            if args.cnn_only:
+                setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}_cnn_only'.format(
+                    args.task_name,
+                    args.model_id,
+                    args.model,
+                    args.data,
+                    args.features,
+                    args.seq_len,
+                    args.label_len,
+                    args.pred_len,
+                    args.des, 
+                    ii
+                    )
+            elif args.kd:
+                setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}_tm{}_kr{}_km{}'.format(
+                    args.task_name,
+                    args.model_id,
+                    args.model,
+                    args.data,
+                    args.features,
+                    args.seq_len,
+                    args.label_len,
+                    args.pred_len,
+                    args.d_model,
+                    args.n_heads,
+                    args.e_layers,
+                    args.d_layers,
+                    args.d_ff,
+                    args.expand,
+                    args.d_conv,
+                    args.factor,
+                    args.embed,
+                    args.distil,
+                    args.des, 
+                    ii,
+                    args.teacher_model,
+                    args.kd_loss_ratio,
+                    args.kd_method)
+            else:
+                setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}'.format(
+                    args.task_name,
+                    args.model_id,
+                    args.model,
+                    args.data,
+                    args.features,
+                    args.seq_len,
+                    args.label_len,
+                    args.pred_len,
+                    args.d_model,
+                    args.n_heads,
+                    args.e_layers,
+                    args.d_layers,
+                    args.d_ff,
+                    args.expand,
+                    args.d_conv,
+                    args.factor,
+                    args.embed,
+                    args.distil,
+                    args.des, ii)
+
+            print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
+            exp.train(setting)
+
+            print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
+            exp.test(setting)
+            torch.cuda.empty_cache()
+    else:
+        if args.cnn_only:
+            ii = 0
+            setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_{}_{}_cnn_only'.format(
+                args.task_name,
+                args.model_id,
+                args.model,
+                args.data,
+                args.features,
+                args.seq_len,
+                args.label_len,
+                args.pred_len,
+                args.des, 
+                ii
+                )
+        elif args.kd:
+            ii = 0
+            setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}_tm{}_kr{}_km{}'.format(
+                    args.task_name,
+                    args.model_id,
+                    args.model,
+                    args.data,
+                    args.features,
+                    args.seq_len,
+                    args.label_len,
+                    args.pred_len,
+                    args.d_model,
+                    args.n_heads,
+                    args.e_layers,
+                    args.d_layers,
+                    args.d_ff,
+                    args.expand,
+                    args.d_conv,
+                    args.factor,
+                    args.embed,
+                    args.distil,
+                    args.des, 
+                    ii,
+                    args.teacher_model,
+                    args.kd_loss_ratio,
+                    args.kd_method)
+
+        else:
+            ii = 0
             setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}'.format(
                 args.task_name,
                 args.model_id,
@@ -184,35 +306,6 @@ if __name__ == '__main__':
                 args.embed,
                 args.distil,
                 args.des, ii)
-
-            print('>>>>>>>start training : {}>>>>>>>>>>>>>>>>>>>>>>>>>>'.format(setting))
-            exp.train(setting)
-
-            print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))
-            exp.test(setting)
-            torch.cuda.empty_cache()
-    else:
-        ii = 0
-        setting = '{}_{}_{}_{}_ft{}_sl{}_ll{}_pl{}_dm{}_nh{}_el{}_dl{}_df{}_expand{}_dc{}_fc{}_eb{}_dt{}_{}_{}'.format(
-            args.task_name,
-            args.model_id,
-            args.model,
-            args.data,
-            args.features,
-            args.seq_len,
-            args.label_len,
-            args.pred_len,
-            args.d_model,
-            args.n_heads,
-            args.e_layers,
-            args.d_layers,
-            args.d_ff,
-            args.expand,
-            args.d_conv,
-            args.factor,
-            args.embed,
-            args.distil,
-            args.des, ii)
 
         exp = Exp(args)  # set experiments
         print('>>>>>>>testing : {}<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<'.format(setting))

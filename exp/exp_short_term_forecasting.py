@@ -13,6 +13,8 @@ import warnings
 import numpy as np
 import pandas
 
+from exp.exp_feature_kd import student_attention, calculate_value
+
 warnings.filterwarnings('ignore')
 
 
@@ -67,9 +69,30 @@ class Exp_Short_Term_Forecast(Exp_Basic):
         criterion = self._select_criterion(self.args.loss)
         mse = nn.MSELoss()
 
+        ##
+        if self.args.kd:
+            # load teacher model
+            teacher_model = self.model_dict[self.args.teacher_model].Model(self.args).float()
+            teacher_model.load_state_dict(torch.load(self.args.teacher_path))
+            teacher_model = teacher_model.to(self.device)
+            print("teacher model load succeed!")
+            if self.args.use_multi_gpu and self.args.use_gpu:
+                teacher_model = nn.DataParallel(teacher_model, device_ids=self.args.device_ids)
+                print("teacher model on Multi-Device")
+            
+            # define kd loss function
+            kd_criterion = nn.MSELoss()
+            # kd_criterion = smape_loss()
+            if self.args.kd_method == 'features':
+                kd_attns_criterion_1 = nn.MSELoss()
+                kd_attns_criterion_2 = nn.MSELoss()
+        ##
+
         for epoch in range(self.args.train_epochs):
             iter_count = 0
             train_loss = []
+            kd_loss_list = []
+            kd_attn_loss_list = []
 
             self.model.train()
             epoch_time = time.time()
@@ -77,6 +100,7 @@ class Exp_Short_Term_Forecast(Exp_Basic):
                 iter_count += 1
                 model_optim.zero_grad()
                 batch_x = batch_x.float().to(self.device)
+                batch_x_mark = batch_x_mark.float().to(self.device)
 
                 batch_y = batch_y.float().to(self.device)
                 batch_y_mark = batch_y_mark.float().to(self.device)
@@ -85,8 +109,13 @@ class Exp_Short_Term_Forecast(Exp_Basic):
                 dec_inp = torch.zeros_like(batch_y[:, -self.args.pred_len:, :]).float()
                 dec_inp = torch.cat([batch_y[:, :self.args.label_len, :], dec_inp], dim=1).float().to(self.device)
 
-                outputs = self.model(batch_x, None, dec_inp, None)
+                if self.args.kd_method == 'features':
+                    outputs, s_query, s_key, s_value = self.model(batch_x, None, dec_inp, None)
+                    s_v, s_attn = student_attention(s_query, s_key, s_value)
+                else:
+                    outputs = self.model(batch_x, None, dec_inp, None)
 
+                ## loss between student outputs & true label
                 f_dim = -1 if self.args.features == 'MS' else 0
                 outputs = outputs[:, -self.args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -self.args.pred_len:, f_dim:].to(self.device)
@@ -97,17 +126,62 @@ class Exp_Short_Term_Forecast(Exp_Basic):
                 loss = loss_value  # + loss_sharpness * 1e-5
                 train_loss.append(loss.item())
 
+                ## kd loss
+                if self.args.kd:
+                    teacher_model.eval()
+                    with torch.no_grad():
+                        if self.args.kd_method == 'features':
+                            teacher_outputs, t_attns, t_query, t_key, t_value = teacher_model(batch_x, None, dec_inp, None)
+                        else:
+                            teacher_outputs = teacher_model(batch_x, None, dec_inp, None)
+                    
+                    f_dim = -1 if self.args.features == 'MS' else 0
+                    teacher_outputs = teacher_outputs[:, -self.args.pred_len:, f_dim:]
+
+                    # calculate loss between student outputs and teacher outputs
+                    kd_loss = kd_criterion(outputs, teacher_outputs)
+                    kd_loss_list.append(kd_loss.item())
+
+                    if self.args.kd_method == 'features':
+                        t_v = torch.einsum("bhls,bshd->blhd", t_attns[1], t_value[1])
+                        s_out, t_out = calculate_value(s_value, t_value[1])
+                        kd_attn_loss = kd_attns_criterion_1(s_v, t_v) + kd_attns_criterion_2(s_out, t_out)
+                        kd_attn_loss_list.append(kd_attn_loss.item())
+
+                # break
                 if (i + 1) % 100 == 0:
-                    print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
-                    speed = (time.time() - time_now) / iter_count
-                    left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
-                    print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
-                    iter_count = 0
-                    time_now = time.time()
+                    if self.args.kd:
+                        if self.args.kd_method == 'features':
+                            print("\titers: {0}, epoch: {1} | loss: {2:.7f} | kd_loss: {3:.7f} | kd_attn_loss: {4:.7f}".format(i + 1, epoch + 1, loss.item(), kd_loss.item(), kd_attn_loss.item()))
+                            speed = (time.time() - time_now) / iter_count
+                            left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                            print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                            iter_count = 0
+                            time_now = time.time()
+                        else:
+                            print("\titers: {0}, epoch: {1} | loss: {2:.7f} | kd_loss: {3:.7f}".format(i + 1, epoch + 1, loss.item(), kd_loss.item()))
+                            speed = (time.time() - time_now) / iter_count
+                            left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                            print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                            iter_count = 0
+                            time_now = time.time()
+                    else:
+                        print("\titers: {0}, epoch: {1} | loss: {2:.7f}".format(i + 1, epoch + 1, loss.item()))
+                        speed = (time.time() - time_now) / iter_count
+                        left_time = speed * ((self.args.train_epochs - epoch) * train_steps - i)
+                        print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
+                        iter_count = 0
+                        time_now = time.time()
+                
+                if self.args.kd:
+                    if self.args.kd_method == 'features':
+                        loss = (1-self.args.kd_loss_ratio)*loss + self.args.kd_loss_ratio*kd_attn_loss
+                    else:
+                        loss = (1-self.args.kd_loss_ratio)*loss + self.args.kd_loss_ratio*kd_loss
 
                 loss.backward()
                 model_optim.step()
-
+            # break
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(train_loader, vali_loader, criterion)
@@ -120,7 +194,7 @@ class Exp_Short_Term_Forecast(Exp_Basic):
                 break
 
             adjust_learning_rate(model_optim, epoch + 1, self.args)
-
+        # exit()
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
@@ -143,9 +217,14 @@ class Exp_Short_Term_Forecast(Exp_Basic):
             id_list = np.arange(0, B, 500)  # validation set size
             id_list = np.append(id_list, B)
             for i in range(len(id_list) - 1):
-                outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
-                                                                      dec_inp[id_list[i]:id_list[i + 1]],
-                                                                      None).detach().cpu()
+                if self.args.output_attention:
+                    outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
+                                                                        dec_inp[id_list[i]:id_list[i + 1]],
+                                                                        None)[0].detach().cpu()
+                else:
+                    outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
+                                                                        dec_inp[id_list[i]:id_list[i + 1]],
+                                                                        None).detach().cpu()
             f_dim = -1 if self.args.features == 'MS' else 0
             outputs = outputs[:, -self.args.pred_len:, f_dim:]
             pred = outputs
@@ -183,8 +262,17 @@ class Exp_Short_Term_Forecast(Exp_Basic):
             id_list = np.arange(0, B, 1)
             id_list = np.append(id_list, B)
             for i in range(len(id_list) - 1):
-                outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
-                                                                      dec_inp[id_list[i]:id_list[i + 1]], None)
+                if self.args.output_attention:
+                    outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
+                                                                        dec_inp[id_list[i]:id_list[i + 1]],
+                                                                        None)[0].detach().cpu()
+                else:
+                    outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
+                                                                        dec_inp[id_list[i]:id_list[i + 1]],
+                                                                        None).detach().cpu()
+                    
+                # outputs[id_list[i]:id_list[i + 1], :, :] = self.model(x[id_list[i]:id_list[i + 1]], None,
+                #                                                       dec_inp[id_list[i]:id_list[i + 1]], None)
 
                 if id_list[i] % 1000 == 0:
                     print(id_list[i])
