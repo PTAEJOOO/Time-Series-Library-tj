@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=0
 
-model_name=TimesNet
+model_name=MICN
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -12,7 +12,7 @@ python -u run.py \
   --data ETTh1 \
   --features M \
   --seq_len 96 \
-  --label_len 48 \
+  --label_len 96 \
   --pred_len 96 \
   --e_layers 2 \
   --d_layers 1 \
@@ -20,12 +20,8 @@ python -u run.py \
   --enc_in 7 \
   --dec_in 7 \
   --c_out 7 \
-  --d_model 16 \
-  --d_ff 32 \
   --des 'Exp' \
-  --itr 1 \
-  --top_k 5 
-
+  --itr 1
 
 # python -u run.py \
 #   --task_name long_term_forecast \
@@ -37,7 +33,7 @@ python -u run.py \
 #   --data ETTh1 \
 #   --features M \
 #   --seq_len 96 \
-#   --label_len 48 \
+#   --label_len 96 \
 #   --pred_len 192 \
 #   --e_layers 2 \
 #   --d_layers 1 \
@@ -45,12 +41,8 @@ python -u run.py \
 #   --enc_in 7 \
 #   --dec_in 7 \
 #   --c_out 7 \
-#   --d_model 16 \
-#   --d_ff 32 \
 #   --des 'Exp' \
-#   --itr 1 \
-#   --top_k 5
-
+#   --itr 1
 
 # python -u run.py \
 #   --task_name long_term_forecast \
@@ -62,7 +54,7 @@ python -u run.py \
 #   --data ETTh1 \
 #   --features M \
 #   --seq_len 96 \
-#   --label_len 48 \
+#   --label_len 96 \
 #   --pred_len 336 \
 #   --e_layers 2 \
 #   --d_layers 1 \
@@ -70,12 +62,8 @@ python -u run.py \
 #   --enc_in 7 \
 #   --dec_in 7 \
 #   --c_out 7 \
-#   --d_model 16 \
-#   --d_ff 32 \
 #   --des 'Exp' \
-#   --itr 1 \
-#   --top_k 5
-
+#   --itr 1
 
 # python -u run.py \
 #   --task_name long_term_forecast \
@@ -87,7 +75,7 @@ python -u run.py \
 #   --data ETTh1 \
 #   --features M \
 #   --seq_len 96 \
-#   --label_len 48 \
+#   --label_len 96 \
 #   --pred_len 720 \
 #   --e_layers 2 \
 #   --d_layers 1 \
@@ -95,8 +83,5 @@ python -u run.py \
 #   --enc_in 7 \
 #   --dec_in 7 \
 #   --c_out 7 \
-#   --d_model 16 \
-#   --d_ff 32 \
 #   --des 'Exp' \
-#   --itr 1 \
-#   --top_k 5
+#   --itr 1

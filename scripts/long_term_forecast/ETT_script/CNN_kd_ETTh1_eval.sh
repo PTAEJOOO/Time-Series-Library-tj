@@ -1,10 +1,15 @@
 export CUDA_VISIBLE_DEVICES=0
 
-model_name=Transformer
+model_name=CNN
 
-python -u run.py \
+teacher_name=DLinear
+kd_loss_ratio="0.1 0.3 0.5 0.7"
+
+for kd in $kd_loss_ratio
+do
+  python -u run.py \
   --task_name long_term_forecast \
-  --is_training 1 \
+  --is_training 0 \
   --root_path ./dataset/ETT-small/ \
   --data_path ETTh1.csv \
   --model_id ETTh1_96_96 \
@@ -21,11 +26,14 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --kd_loss_ratio $kd \
+  --kd \
+  --teacher_model $teacher_name 
 
 python -u run.py \
   --task_name long_term_forecast \
-  --is_training 1 \
+  --is_training 0 \
   --root_path ./dataset/ETT-small/ \
   --data_path ETTh1.csv \
   --model_id ETTh1_96_192 \
@@ -42,11 +50,14 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --kd_loss_ratio $kd \
+  --kd \
+  --teacher_model $teacher_name
 
 python -u run.py \
   --task_name long_term_forecast \
-  --is_training 1 \
+  --is_training 0 \
   --root_path ./dataset/ETT-small/ \
   --data_path ETTh1.csv \
   --model_id ETTh1_96_336 \
@@ -63,11 +74,14 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --kd_loss_ratio $kd \
+  --kd \
+  --teacher_model $teacher_name
 
 python -u run.py \
   --task_name long_term_forecast \
-  --is_training 1 \
+  --is_training 0 \
   --root_path ./dataset/ETT-small/ \
   --data_path ETTh1.csv \
   --model_id ETTh1_96_720 \
@@ -84,4 +98,9 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --kd_loss_ratio $kd \
+  --kd \
+  --teacher_model $teacher_name
+done
+

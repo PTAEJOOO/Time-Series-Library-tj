@@ -1,6 +1,6 @@
 export CUDA_VISIBLE_DEVICES=0
 
-model_name=Transformer
+model_name=CNN
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -21,7 +21,8 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --cnn_only
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -42,7 +43,8 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --cnn_only
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -63,7 +65,8 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --cnn_only
 
 python -u run.py \
   --task_name long_term_forecast \
@@ -84,4 +87,5 @@ python -u run.py \
   --dec_in 7 \
   --c_out 7 \
   --des 'Exp' \
-  --itr 1
+  --itr 1 \
+  --cnn_only
