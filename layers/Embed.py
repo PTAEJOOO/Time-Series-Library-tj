@@ -133,13 +133,21 @@ class DataEmbedding_inverted(nn.Module):
         self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, x_mark):
+        # print("inside dataembedding inverted : ", x.size())
         x = x.permute(0, 2, 1)
         # x: [Batch Variate Time]
         if x_mark is None:
             x = self.value_embedding(x)
         else:
+            # print("1: ",x.size())
+            # print(x_mark.permute(0, 2, 1).size())
+            # x = torch.cat([x, x_mark.permute(0, 2, 1)], 1)
+            # print("2: ", x.size())
+            # x = self.value_embedding(x)
             x = self.value_embedding(torch.cat([x, x_mark.permute(0, 2, 1)], 1))
         # x: [Batch Variate d_model]
+        # print("3: ", x.size())
+        # print("finished")
         return self.dropout(x)
 
 

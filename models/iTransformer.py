@@ -6,6 +6,8 @@ from layers.SelfAttention_Family import FullAttention, AttentionLayer
 from layers.Embed import DataEmbedding_inverted
 import numpy as np
 
+from math import sqrt
+
 
 class Model(nn.Module):
     """
@@ -18,6 +20,9 @@ class Model(nn.Module):
         self.seq_len = configs.seq_len
         self.pred_len = configs.pred_len
         self.output_attention = configs.output_attention
+
+        self.kd = configs.kd
+        self.kd_method = configs.kd_method
         # Embedding
         self.enc_embedding = DataEmbedding_inverted(configs.seq_len, configs.d_model, configs.embed, configs.freq,
                                                     configs.dropout)
@@ -50,22 +55,54 @@ class Model(nn.Module):
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Normalization from Non-stationary Transformer
+        # print("input x size: ", x_enc.size())
         means = x_enc.mean(1, keepdim=True).detach()
         x_enc = x_enc - means
         stdev = torch.sqrt(torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
         x_enc /= stdev
 
         _, _, N = x_enc.shape
+        # print("before embedding input size = ", x_enc.size())
 
         # Embedding
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        # print("input embedding output size: ", enc_out.size())
+        enc_out, attns, qs, ks, vs = self.encoder(enc_out, attn_mask=None)
+        # print("encoder output size: ", enc_out.size())
+
+        # for i, attn in enumerate(attns):
+        #     print("{0}-th attention size: {1}".format(i+1, attn.size()))
+
+        # print("queries: ", len(qs))
+        # print("keys: ", len(ks))
+        # print("values: ", len(vs))
+
+        # for i, q in enumerate(qs):
+        #     print("{0}-th query size: {1}".format(i+1, q.size())) 
+        # for i, k in enumerate(qs):
+        #     print("{0}-th key size: {1}".format(i+1, k.size())) 
+        # for i, v in enumerate(vs):
+        #     print("{0}-th value size: {1}".format(i+1, v.size()))
+
+        # B, L, H, E = qs[0].shape
+        # scale = 1. / sqrt(E)
+        # scores = torch.einsum("blhe,bshe->bhls", qs[0], ks[0])
+        # print("scores : ", scores.size())
+        # A = torch.softmax(scale * scores, dim=-1)
+        # print("A : ", A.size())
+        # V = torch.einsum("bhls,bshd->blhd", A, vs[0])
+        # print("V : ", V.size())
 
         dec_out = self.projection(enc_out).permute(0, 2, 1)[:, :, :N]
         # De-Normalization from Non-stationary Transformer
         dec_out = dec_out * (stdev[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
         dec_out = dec_out + (means[:, 0, :].unsqueeze(1).repeat(1, self.pred_len, 1))
-        return dec_out
+        # print("decoder output size: ", dec_out.size())
+
+        if self.kd_method == 'features':
+            return dec_out, attns, qs, ks, vs
+        else:
+            return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):
         # Normalization from Non-stationary Transformer
@@ -119,8 +156,12 @@ class Model(nn.Module):
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
-            return dec_out[:, -self.pred_len:, :]  # [B, L, D]
+            if self.kd_method == 'features':
+                dec_out, attns, qs, ks, vs = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
+                return dec_out[:, -self.pred_len:, :], attns, qs, ks, vs
+            else:
+                dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
+                return dec_out[:, -self.pred_len:, :]  # [B, L, D]
         if self.task_name == 'imputation':
             dec_out = self.imputation(x_enc, x_mark_enc, x_dec, x_mark_dec, mask)
             return dec_out  # [B, L, D]

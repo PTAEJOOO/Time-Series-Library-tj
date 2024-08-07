@@ -36,12 +36,22 @@ class EncoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
         self.activation = F.relu if activation == "relu" else F.gelu
 
+        self.query_out = None
+        self.key_out = None
+        self.value_out = None
+
+
     def forward(self, x, attn_mask=None, tau=None, delta=None):
         new_x, attn = self.attention(
             x, x, x,
             attn_mask=attn_mask,
             tau=tau, delta=delta
         )
+
+        self.query_out = self.attention.query_out
+        self.key_out = self.attention.key_out
+        self.value_out = self.attention.value_out
+
         x = x + self.dropout(new_x)
 
         y = x = self.norm1(x)
@@ -61,12 +71,21 @@ class Encoder(nn.Module):
     def forward(self, x, attn_mask=None, tau=None, delta=None):
         # x [B, L, D]
         attns = []
+        qs = []
+        ks = []
+        vs = []
+
         if self.conv_layers is not None:
             for i, (attn_layer, conv_layer) in enumerate(zip(self.attn_layers, self.conv_layers)):
                 delta = delta if i == 0 else None
                 x, attn = attn_layer(x, attn_mask=attn_mask, tau=tau, delta=delta)
                 x = conv_layer(x)
                 attns.append(attn)
+
+                qs.append(attn_layer.query_out)
+                ks.append(attn_layer.key_out)
+                vs.append(attn_layer.value_out)
+
             x, attn = self.attn_layers[-1](x, tau=tau, delta=None)
             attns.append(attn)
         else:
@@ -74,10 +93,14 @@ class Encoder(nn.Module):
                 x, attn = attn_layer(x, attn_mask=attn_mask, tau=tau, delta=delta)
                 attns.append(attn)
 
+                qs.append(attn_layer.query_out)
+                ks.append(attn_layer.key_out)
+                vs.append(attn_layer.value_out)
+
         if self.norm is not None:
             x = self.norm(x)
 
-        return x, attns
+        return x, attns, qs, ks, vs
 
 
 class DecoderLayer(nn.Module):

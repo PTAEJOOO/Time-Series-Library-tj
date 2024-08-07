@@ -6,6 +6,8 @@ from layers.SelfAttention_Family import FullAttention, AttentionLayer
 from layers.Embed import DataEmbedding
 import numpy as np
 
+from math import sqrt
+
 
 class Model(nn.Module):
     """
@@ -73,11 +75,38 @@ class Model(nn.Module):
 
     def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
         # Embedding
+        # print("input x size: ", x_enc.size())
         enc_out = self.enc_embedding(x_enc, x_mark_enc)
-        enc_out, attns = self.encoder(enc_out, attn_mask=None)
+        # print("input embedding output size: ", enc_out.size())
+        enc_out, attns, qs, ks, vs = self.encoder(enc_out, attn_mask=None)
+        # print("encoder output size: ", enc_out.size())
+        # for i, attn in enumerate(attns):
+        #     print("{0}-th attention size: {1}".format(i+1, attn.size()))
+
+        # print("queries: ", len(qs))
+        # print("keys: ", len(ks))
+        # print("values: ", len(vs))
+
+        # for i, q in enumerate(qs):
+        #     print("{0}-th query size: {1}".format(i+1, q.size())) 
+        # for i, k in enumerate(ks):
+        #     print("{0}-th key size: {1}".format(i+1, k.size())) 
+        # for i, v in enumerate(vs):
+        #     print("{0}-th value size: {1}".format(i+1, v.size()))
+
+        # B, L, H, E = qs[0].shape
+        # scale = 1. / sqrt(E)
+        # scores = torch.einsum("blhe,bshe->bhls", qs[0], ks[0])
+        # print("scores : ", scores.size())
+        # A = torch.softmax(scale * scores, dim=-1)
+        # print("A : ", A.size())
+        # V = torch.einsum("bhls,bshd->blhd", A, vs[0])
+        # print("V : ", V.size())
 
         dec_out = self.dec_embedding(x_dec, x_mark_dec)
         dec_out = self.decoder(dec_out, enc_out, x_mask=None, cross_mask=None)
+        # print("decoder output size: ", dec_out.size())
+        # print("output size: ", dec_out[:, -self.pred_len:, :].size())
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):

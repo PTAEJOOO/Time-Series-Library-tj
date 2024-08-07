@@ -65,7 +65,7 @@ class FullAttention(nn.Module):
                 attn_mask = TriangularCausalMask(B, L, device=queries.device)
 
             scores.masked_fill_(attn_mask.mask, -np.inf)
-
+            
         A = self.dropout(torch.softmax(scale * scores, dim=-1))
         V = torch.einsum("bhls,bshd->blhd", A, values)
 
@@ -191,6 +191,10 @@ class AttentionLayer(nn.Module):
         self.out_projection = nn.Linear(d_values * n_heads, d_model)
         self.n_heads = n_heads
 
+        self.query_out = None
+        self.key_out = None
+        self.value_out = None
+
     def forward(self, queries, keys, values, attn_mask, tau=None, delta=None):
         B, L, _ = queries.shape
         _, S, _ = keys.shape
@@ -199,6 +203,10 @@ class AttentionLayer(nn.Module):
         queries = self.query_projection(queries).view(B, L, H, -1)
         keys = self.key_projection(keys).view(B, S, H, -1)
         values = self.value_projection(values).view(B, S, H, -1)
+
+        self.query_out = queries
+        self.key_out = keys
+        self.value_out = values
 
         out, attn = self.inner_attention(
             queries,
