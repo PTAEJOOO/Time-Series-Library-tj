@@ -12,6 +12,9 @@ import numpy as np
 from utils.dtw_metric import dtw,accelerated_dtw
 from utils.augmentation import run_augmentation,run_augmentation_single
 from exp.exp_feature_kd import student_attention, calculate_value
+from torchsummary import summary
+
+from fvcore.nn import FlopCountAnalysis
 
 warnings.filterwarnings('ignore')
 
@@ -114,7 +117,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 teacher_model = nn.DataParallel(teacher_model, device_ids=self.args.device_ids)
                 print("teacher model on Multi-Device")
             
-            # define kd loss function
+            # define kd logit loss function
             kd_criterion = nn.MSELoss()
             if self.args.kd_method == 'features':
                 kd_attns_criterion_1 = nn.MSELoss()
@@ -131,6 +134,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         #     print(f"{name} - mean: {param.mean().item()}, std: {param.std().item()}")
         # total_params = sum(p.numel() for p in self.model.parameters())
         # print(f"Total number of parameters: {total_params}")
+        # for name, param in self.model.named_parameters():
+        #     print(f"{name} : {len(param.view(-1))}")
         # exit()
         ##
         for epoch in range(self.args.train_epochs):
@@ -185,7 +190,10 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                             # print("student key: ", s_key.size())
                             # print("student value: ", s_value.size())
                         else:
-                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark) 
+                            outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            # input = (batch_x, batch_x_mark, dec_inp, batch_y_mark)
+                            # flops = FlopCountAnalysis(self.model, input)
+                            # print(f"FLOPs: {flops.total()}")
                         # outputs = self.model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
                     f_dim = -1 if self.args.features == 'MS' else 0
@@ -199,7 +207,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     teacher_model.eval()
                     with torch.no_grad():
                         # calculate teacher outputs
-                        if self.args.kd_method == 'features':
+                        if self.args.kd_method == 'features': # transformer based teacher model output & attention, Q, K, V
                             teacher_outputs, t_attns, t_query, t_key, t_value = teacher_model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
                             # calcuate loss between teacher and student attention
                             # s_out, t_out = calculate_value(s_value, t_value[1])
@@ -225,7 +233,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         kd_attn_loss_list.append(kd_attn_loss.item())
 
                 ##
-                exit()
+                # exit()
                 if (i + 1) % 100 == 0:
                     if self.args.kd:
                         if self.args.kd_method == 'features':
@@ -307,6 +315,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
             os.makedirs(folder_path)
 
         self.model.eval()
+        start_time = time.time()
         with torch.no_grad():
             for i, (batch_x, batch_y, batch_x_mark, batch_y_mark) in enumerate(test_loader):
                 batch_x = batch_x.float().to(self.device)
@@ -358,6 +367,8 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                     gt = np.concatenate((input[0, :, -1], true[0, :, -1]), axis=0)
                     pd = np.concatenate((input[0, :, -1], pred[0, :, -1]), axis=0)
                     visual(gt, pd, os.path.join(folder_path, str(i) + '.pdf'))
+        
+        end_time = time.time()
 
         preds = np.concatenate(preds, axis=0)
         trues = np.concatenate(trues, axis=0)
@@ -389,6 +400,9 @@ class Exp_Long_Term_Forecast(Exp_Basic):
 
         mae, mse, rmse, mape, mspe = metric(preds, trues)
         print('mse:{}, mae:{}, dtw:{}'.format(mse, mae, dtw))
+
+        print(f"inference time : {end_time - start_time} seconds")
+
         f = open("result_long_term_forecast.txt", 'a')
         f.write(setting + "  \n")
         f.write('mse:{}, mae:{}, dtw:{}'.format(mse, mae, dtw))
