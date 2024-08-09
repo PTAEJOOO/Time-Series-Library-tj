@@ -36,13 +36,14 @@ class Model(nn.Module):
             self.fc2 = nn.Linear(64, self.pred_len)
             self.relu = nn.ReLU()
         else:
+            ## Small CNN
             self.conv1 = nn.Conv1d(in_channels=self.channels, out_channels=16, kernel_size=3, padding=1)
             self.conv2 = nn.Conv1d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
             self.fc1 = nn.Linear(32 * self.seq_len, 128)
             self.fc2 = nn.Linear(128, self.pred_len * self.c_out)
             self.relu = nn.ReLU()
             
-            ##
+            ## Large CNN
             # self.conv1 = nn.Conv1d(in_channels=self.channels, out_channels=16, kernel_size=3, padding=1)
             # self.conv2 = nn.Conv1d(in_channels=16, out_channels=32, kernel_size=3, padding=1)
             # self.conv3 = nn.Conv1d(in_channels=32, out_channels=64, kernel_size=3, padding=1)
@@ -90,10 +91,12 @@ class Model(nn.Module):
             x = self.conv1(x)
             x = nn.functional.relu(x)
             x = self.conv2(x)
-            x = nn.functional.relu(x)
-            x = self.conv3(x)
-            x = nn.functional.relu(x)
-            x = self.conv4(x)
+            ## Large CNN
+            # x = nn.functional.relu(x)
+            # x = self.conv3(x)
+            # x = nn.functional.relu(x)
+            # x = self.conv4(x)
+            ##
             conv_out = nn.functional.relu(x)
 
             x = conv_out.view(conv_out.size(0), -1)  # Flatten the tensor
@@ -110,11 +113,6 @@ class Model(nn.Module):
     
     def forecast(self, x_enc):
         return self.encoder(x_enc)
-        # if self.kd_method == 'features':
-        #     x, conv_out = self.encoder(x_enc)
-        #     return x
-        # else:
-        #     return self.encoder(x_enc)
         
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
