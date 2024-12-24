@@ -107,16 +107,20 @@ class Model(nn.Module):
         stdev = torch.sqrt(
             torch.var(x_enc, dim=1, keepdim=True, unbiased=False) + 1e-5)
         x_enc /= stdev
-
+        print("input size : ", x_enc.shape)
         # embedding
         enc_out = self.enc_embedding(x_enc, x_mark_enc)  # [B,T,C]
+        print("embedded size : ", enc_out.shape)
         enc_out = self.predict_linear(enc_out.permute(0, 2, 1)).permute(
             0, 2, 1)  # align temporal dimension
+        print("after predict_linear size : ", enc_out.shape)
         # TimesNet
         for i in range(self.layer):
             enc_out = self.layer_norm(self.model[i](enc_out))
-        # porject back
+        print("after TimesNet size : ", enc_out.shape)
+        # project back
         dec_out = self.projection(enc_out)
+        print("projected back size : ", dec_out.shape)
 
         # De-Normalization from Non-stationary Transformer
         dec_out = dec_out * \
@@ -125,6 +129,8 @@ class Model(nn.Module):
         dec_out = dec_out + \
                   (means[:, 0, :].unsqueeze(1).repeat(
                       1, self.pred_len + self.seq_len, 1))
+        print("dec_out size : ", dec_out.shape)
+        print("output size : ", dec_out[:, -self.pred_len:, :].shape)
         return dec_out
 
     def imputation(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask):

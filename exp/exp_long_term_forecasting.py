@@ -233,7 +233,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                         kd_attn_loss_list.append(kd_attn_loss.item())
 
                 ##
-                # exit()
+                exit()
                 if (i + 1) % 100 == 0:
                     if self.args.kd:
                         if self.args.kd_method == 'features':
@@ -272,7 +272,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
                 else:
                     loss.backward()
                     model_optim.step()
-            # exit()
+            exit()
             print("Epoch: {} cost time: {}".format(epoch + 1, time.time() - epoch_time))
             train_loss = np.average(train_loss)
             vali_loss = self.vali(vali_data, vali_loader, criterion)
@@ -292,7 +292,7 @@ class Exp_Long_Term_Forecast(Exp_Basic):
         #         print(f"Parameter {name} has not been updated.")
         #     else:
         #         print(f"Parameter {name} has been updated.")
-        # exit()
+        exit()
         best_model_path = path + '/' + 'checkpoint.pth'
         self.model.load_state_dict(torch.load(best_model_path))
 
